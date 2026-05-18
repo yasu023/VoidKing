@@ -1,13 +1,21 @@
-"""Responsive layout metrics derived from the current window size."""
+"""Responsive layout metrics derived from the current window size.
+
+AppLayout is the single source of geometry for the menu and game scene.  Keeping
+these calculations here prevents rendering code from duplicating resize math and
+ensures board squares, panels, buttons, and fonts scale together.
+"""
 
 
 class AppLayout:
+    """Computed dimensions for the current application window."""
+
     MIN_WIDTH = 880
     MIN_HEIGHT = 600
     DEFAULT_WIDTH = 1000
     DEFAULT_HEIGHT = 720
 
     def __init__(self, width, height):
+        """Calculate board, panel, button, and font metrics for a window size."""
         self.width = max(self.MIN_WIDTH, int(width))
         self.height = max(self.MIN_HEIGHT, int(height))
         self.scale = max(0.82, min(1.2, self.width / self.DEFAULT_WIDTH))
@@ -61,9 +69,11 @@ class AppLayout:
         self.panel_history_height = self.history_max_rows * self.history_row_h
 
     def _fs(self, base, minimum):
+        """Scale a font size while preserving a readable lower bound."""
         return max(minimum, int(base * self.scale))
 
     def board_inner_rect(self):
+        """Rectangle containing the playable 8x8 board, excluding border."""
         import pygame
 
         return pygame.Rect(
@@ -74,6 +84,7 @@ class AppLayout:
         )
 
     def sq_rect(self, row, col):
+        """Rectangle for one board square in screen coordinates."""
         import pygame
 
         inner = self.board_inner_rect()
@@ -81,16 +92,20 @@ class AppLayout:
         return pygame.Rect(inner.x + col * sq, inner.y + row * sq, sq, sq)
 
     def sq_center(self, row, col):
+        """Pixel center of one board square."""
         r = self.sq_rect(row, col)
         return r.centerx, r.centery
 
     def menu_button_width(self):
+        """Responsive button width shared by menu controls."""
         return min(320, self.width - self.pad * 4)
 
     def menu_content_top(self):
+        """Top coordinate for menu content block."""
         return max(int(self.height * 0.22), int(120 * self.scale))
 
     def menu_button_area_height(self, num_buttons):
+        """Return total height, button height, and gap for stacked menu buttons."""
         gap = max(10, int(12 * self.scale))
         bh = max(40, int(44 * self.scale))
         return num_buttons * bh + (num_buttons - 1) * gap, bh, gap

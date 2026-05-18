@@ -2,6 +2,7 @@
 
 
 def init_pygame():
+  """Return the pygame module or stop with an actionable dependency message."""
   try:
     import pygame  # noqa: F401 — pygame-ce provides the pygame module name
   except ImportError as exc:

@@ -1,3 +1,10 @@
+"""Computer opponent: evaluation, minimax search, and background execution.
+
+The UI never blocks while the engine thinks.  GameScene starts a daemon thread
+with a copied Board, polls a Queue each frame, and applies the returned move only
+after verifying it is still legal in the live position.
+"""
+
 import random
 import threading
 from queue import Queue, Empty
@@ -19,6 +26,8 @@ MAX_DEPTH = 5
 
 
 class AI:
+    """Small chess engine based on negamax minimax with alpha-beta pruning."""
+
     def __init__(self):
         self.next_move = None
         self.nodes_evaluated = 0
@@ -26,9 +35,11 @@ class AI:
         self.transposition = {}
 
     def clear_transposition(self):
+        """Drop cached search scores between independent AI turns."""
         self.transposition.clear()
 
     def is_endgame(self, board):
+        """Approximate phase detection for choosing the king's square table."""
         queens = 0
         minors = 0
         for r in range(8):
@@ -42,6 +53,13 @@ class AI:
         return queens == 0 or (queens == 2 and minors <= 2)
 
     def evaluate_board(self, board):
+        """Score the position from White's perspective.
+
+        Positive values favor White and negative values favor Black.  The score
+        combines material values with piece-square tables, which reward pieces
+        for occupying strategically useful squares.  White uses a vertically
+        mirrored table because the arrays are written from White's perspective.
+        """
         if board.checkmate:
             return -CHECKMATE if board.white_to_move else CHECKMATE
         if board.stalemate or board.draw_by_fifty_moves or board.draw_by_repetition:
@@ -80,6 +98,7 @@ class AI:
         return score
 
     def order_moves(self, moves):
+        """Sort forcing moves first so alpha-beta pruning cuts more branches."""
         def move_score(move):
             score = 0
             if move.piece_captured:
@@ -93,6 +112,13 @@ class AI:
         return sorted(moves, key=move_score, reverse=True)
 
     def find_best_move(self, board, valid_moves, depth, result_queue):
+        """Entry point run by the worker thread.
+
+        The search receives a snapshot of the game state and produces exactly
+        one result in result_queue: the chosen move and the number of leaf nodes
+        evaluated.  It refreshes moves on the copied board so every Move object
+        belongs to the board being mutated by the search.
+        """
         self.next_move = None
         self.nodes_evaluated = 0
         self.start_depth = min(depth, MAX_DEPTH)
@@ -124,6 +150,21 @@ class AI:
         result_queue.put((self.next_move, self.nodes_evaluated))
 
     def find_move_minimax(self, board, valid_moves, depth, alpha, beta, turn_multiplier):
+        """Negamax minimax with alpha-beta pruning.
+
+        Step by step:
+        1. At depth 0, evaluate the current position, with quiescence extending
+           capture sequences so the engine does not stop in the middle of a
+           tactical exchange.
+        2. For each candidate move, make it, generate the opponent's legal
+           replies, and recursively score the reply position.
+        3. Negate the child score because the opponent's best result is bad for
+           the current player.  This is the negamax form of minimax.
+        4. Track the best score and remember the root move that produced it.
+        5. Raise alpha when a better option is found.  If alpha reaches beta,
+           the opponent already has a better alternative, so the remaining moves
+           cannot affect the final decision and the branch is pruned.
+        """
         if depth == 0:
             self.nodes_evaluated += 1
             return turn_multiplier * self._quiescence(board, alpha, beta, turn_multiplier, 3)
@@ -136,6 +177,9 @@ class AI:
             board.is_game_over = False
             return score
 
+        # Transposition caching avoids re-searching the same position reached by
+        # a different move order.  The alpha/beta window is part of the key
+        # because a bound can depend on the search window used.
         tt_key = (board.get_board_hash(), depth, alpha, beta)
         cached = self.transposition.get(tt_key)
         if cached is not None:
@@ -163,6 +207,8 @@ class AI:
             if max_score > alpha:
                 alpha = max_score
             if alpha >= beta:
+                # Alpha-beta cutoff: the maximizing side found a move so good
+                # that the minimizing side would never allow this line.
                 break
 
         self.transposition[tt_key] = max_score
@@ -171,6 +217,12 @@ class AI:
         return max_score
 
     def _quiescence(self, board, alpha, beta, turn_multiplier, depth_left):
+        """Search only captures/promotions beyond the normal depth limit.
+
+        Plain minimax can evaluate unstable positions too early, such as just
+        before a recapture.  Quiescence search keeps resolving forcing captures
+        for a few ply, making the evaluation less sensitive to arbitrary depth.
+        """
         stand_pat = turn_multiplier * self.evaluate_board(board)
         if depth_left == 0:
             return stand_pat
@@ -203,7 +255,12 @@ _ai_lock = threading.Lock()
 
 
 def start_ai_search(board, valid_moves, depth):
-    """Run AI search on a background thread; returns (thread, queue)."""
+    """Run AI search on a background thread; returns ``(thread, queue)``.
+
+    A copied Board isolates the worker from UI mutations.  The Queue is the only
+    communication channel back to the main loop, which keeps Pygame rendering
+    responsive and avoids sharing mutable board state across threads.
+    """
     global _ai_thread, _ai_queue
 
     with _ai_lock:
@@ -215,6 +272,7 @@ def start_ai_search(board, valid_moves, depth):
     search_board = board.copy()
 
     def run():
+        """Thread target: search once and fall back safely if an error occurs."""
         try:
             ai.find_best_move(search_board, valid_moves, depth, result_queue)
         except Exception:
@@ -229,6 +287,11 @@ def start_ai_search(board, valid_moves, depth):
 
 
 def cancel_ai_search():
+    """Forget the current worker handles.
+
+    The thread itself is daemonized and searches a private board copy; clearing
+    these references simply tells the UI to stop waiting for the old result.
+    """
     global _ai_thread, _ai_queue
     with _ai_lock:
         _ai_thread = None
@@ -236,6 +299,7 @@ def cancel_ai_search():
 
 
 def poll_ai_result(queue, timeout=0):
+    """Non-blocking read used by the frame loop to collect the AI move."""
     if queue is None:
         return None
     try:

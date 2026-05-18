@@ -1,4 +1,14 @@
+"""Move value object used by the rules engine, UI, and AI."""
+
+
 class Move:
+    """Immutable-style description of one chess move.
+
+    A Move stores the start/end coordinates, moved/captured pieces, and special
+    flags for en passant, castling, and promotion.  The generated ``move_id`` is
+    used to compare equivalent moves across copied boards during AI search.
+    """
+
     def __init__(self, start_sq, end_sq, board, is_en_passant=False, is_castle=False, promotion=None):
         self.start_row = start_sq[0]
         self.start_col = start_sq[1]
@@ -11,9 +21,13 @@ class Move:
         self.is_castle = is_castle
         self.promotion = promotion
         
+        # En passant is the only capture where the captured pawn is not on the
+        # destination square, so record the captured piece explicitly.
         if self.is_en_passant:
             self.piece_captured = 'bp' if self.piece_moved == 'wp' else 'wp'
             
+        # Include special-move flags and promotion piece in the id.  This keeps
+        # e7-e8=Q distinct from e7-e8=N even though the coordinates match.
         promo_code = 0
         if self.promotion:
             promo_code = (ord(self.promotion[0]) * 10 + ord(self.promotion[1])) * 100000
@@ -33,6 +47,7 @@ class Move:
         return False
 
     def get_chess_notation(self):
+        """Return compact algebraic-style notation for move history display."""
         cols_to_files = {0: 'a', 1: 'b', 2: 'c', 3: 'd', 4: 'e', 5: 'f', 6: 'g', 7: 'h'}
         start_sq = cols_to_files[self.start_col] + str(8 - self.start_row)
         end_sq = cols_to_files[self.end_col] + str(8 - self.end_row)

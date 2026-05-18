@@ -1,7 +1,17 @@
+"""Chess rules engine and board-state model.
+
+This module deliberately has no Pygame dependency.  It represents the current
+position, generates legal moves, applies/undoes moves, and detects terminal
+states.  The UI and AI both depend on this class: the UI mutates the live Board,
+while the AI searches copied Board objects in a background thread.
+"""
+
 from move import Move
 
 
 class CastleRights:
+    """Compact record of whether each side may still castle on each flank."""
+
     def __init__(self, wks, bks, wqs, bqs):
         self.wks = wks
         self.bks = bks
@@ -10,6 +20,14 @@ class CastleRights:
 
 
 class Board:
+    """Complete chess position plus the reversible logs needed for search.
+
+    The board is an 8x8 matrix using two-character piece codes:
+    first character is color (``w`` or ``b``), second is piece type
+    (``p``, ``n``, ``b``, ``r``, ``q``, ``k``).  Empty squares are ``None``.
+    Row 0 is Black's back rank, so White moves toward decreasing row numbers.
+    """
+
     def __init__(self):
         self.board = [
             ['br', 'bn', 'bb', 'bq', 'bk', 'bb', 'bn', 'br'],
@@ -33,6 +51,8 @@ class Board:
         self.pins = []
         self.checks = []
 
+        # En passant and castling are stateful rights, not visible from piece
+        # placement alone, so they are logged alongside moves for exact undo.
         self.en_passant_possible = ()
         self.en_passant_log = [self.en_passant_possible]
 
@@ -46,6 +66,9 @@ class Board:
             )
         ]
 
+        # Draw state: halfmove clock counts ply since the last pawn move or
+        # capture; position_history includes turn, en passant, and castling
+        # rights so threefold repetition matches chess rules closely.
         self.halfmove_clock = 0
         self.halfmove_clock_log = [0]
         self.draw_by_fifty_moves = False
@@ -90,6 +113,7 @@ class Board:
         return other
 
     def get_board_hash(self):
+        """Serialize the rule-relevant state for repetition and AI caching."""
         return (
             str(self.board)
             + str(self.white_to_move)
@@ -101,6 +125,7 @@ class Board:
         )
 
     def is_insufficient_material(self):
+        """Detect positions where checkmate is impossible by material alone."""
         white = {"p": 0, "n": 0, "b": 0, "r": 0, "q": 0}
         black = {"p": 0, "n": 0, "b": 0, "r": 0, "q": 0}
         white_bishop_squares = []
@@ -144,6 +169,12 @@ class Board:
         return False
 
     def update_game_status(self, valid_moves):
+        """Update checkmate/stalemate/draw flags after legal moves are known.
+
+        Checkmate and stalemate are both discovered from the same fact: the side
+        to move has no legal moves.  The difference is whether that side's king
+        is currently attacked.
+        """
         self.checkmate = False
         self.stalemate = False
         self.draw_by_fifty_moves = False
@@ -179,6 +210,7 @@ class Board:
             self.is_game_over = True
 
     def make_move(self, move):
+        """Apply a legal move and update all dependent game-state logs."""
         self.board[move.start_row][move.start_col] = None
         self.board[move.end_row][move.end_col] = move.piece_moved
         self.move_log.append(move)
@@ -188,14 +220,20 @@ class Board:
         elif move.piece_moved == "bk":
             self.black_king_loc = (move.end_row, move.end_col)
 
+        # En passant captures a pawn on the square behind the landing square,
+        # so the captured piece is not located at move.end_row/end_col.
         if move.is_en_passant:
             self.board[move.start_row][move.end_col] = None
 
+        # A two-square pawn advance exposes exactly one en passant target square
+        # for the opponent's next move only.
         if move.piece_moved[1] == "p" and abs(move.start_row - move.end_row) == 2:
             self.en_passant_possible = ((move.start_row + move.end_row) // 2, move.start_col)
         else:
             self.en_passant_possible = ()
 
+        # Castling is encoded as a king move of two files.  The rook is moved
+        # here as a side effect so the board remains a normal piece matrix.
         if move.is_castle:
             if move.end_col - move.start_col == 2:
                 self.board[move.end_row][move.end_col - 1] = self.board[move.end_row][move.end_col + 1]
@@ -204,6 +242,8 @@ class Board:
                 self.board[move.end_row][move.end_col + 1] = self.board[move.end_row][move.end_col - 2]
                 self.board[move.end_row][move.end_col - 2] = None
 
+        # Promotion choice is stored on the Move object; replacing the pawn here
+        # keeps move generation separate from state mutation.
         if move.promotion:
             self.board[move.end_row][move.end_col] = move.promotion
 
@@ -229,6 +269,11 @@ class Board:
         self.position_history.append(self.get_board_hash())
 
     def undo_move(self):
+        """Restore the exact previous state.
+
+        Undo is central to both UI undo and the AI search tree.  Every field that
+        make_move changes has a corresponding restoration step here.
+        """
         if len(self.move_log) == 0:
             return
 
@@ -242,6 +287,8 @@ class Board:
         elif move.piece_moved == "bk":
             self.black_king_loc = (move.start_row, move.start_col)
 
+        # Restore en passant's off-square capture before restoring the logged
+        # en passant right.
         if move.is_en_passant:
             self.board[move.end_row][move.end_col] = None
             self.board[move.start_row][move.end_col] = move.piece_captured
@@ -253,6 +300,7 @@ class Board:
         cr = self.castle_rights_log[-1]
         self.current_castling_rights = CastleRights(cr.wks, cr.bks, cr.wqs, cr.bqs)
 
+        # Move the rook back to its corner after undoing the king move.
         if move.is_castle:
             if move.end_col - move.start_col == 2:
                 self.board[move.end_row][move.end_col + 1] = self.board[move.end_row][move.end_col - 1]
@@ -274,6 +322,7 @@ class Board:
         self.draw_by_repetition = False
 
     def update_castle_rights(self, move):
+        """Remove castling rights when kings or original rooks move or fall."""
         if move.piece_moved == "wk":
             self.current_castling_rights.wks = False
             self.current_castling_rights.wqs = False
@@ -307,6 +356,14 @@ class Board:
                     self.current_castling_rights.bks = False
 
     def get_valid_moves(self, update_status=True):
+        """Return all legal moves for the side to move.
+
+        Move generation happens in layers:
+        1. Identify checks and pins from the king's perspective.
+        2. Generate pseudo-legal piece moves, respecting pinned-piece direction.
+        3. If in check, keep only king moves, captures of the checker, or blocks.
+        4. Simulate each candidate and reject moves that leave the king attacked.
+        """
         moves = []
         self.in_check_flag, self.pins, self.checks = self.check_for_pins_and_checks()
 
@@ -317,6 +374,9 @@ class Board:
 
         if self.in_check_flag:
             if len(self.checks) == 1:
+                # A single sliding check can be answered by capturing the
+                # checker or blocking the line.  A knight check can only be
+                # captured or escaped by the king.
                 moves = self.get_all_possible_moves(attack_only=True)
                 check = self.checks[0]
                 check_r, check_c = check[0], check[1]
@@ -335,6 +395,8 @@ class Board:
                         if (moves[i].end_row, moves[i].end_col) not in valid_squares:
                             moves.pop(i)
             else:
+                # Double check cannot be blocked by one move; only king moves
+                # can make both attacks disappear.
                 self.get_king_moves(king_r, king_c, moves, attack_only=True)
         else:
             moves = self.get_all_possible_moves(attack_only=True)
@@ -346,6 +408,7 @@ class Board:
         return moves
 
     def filter_king_safe_moves(self, moves):
+        """Reject pseudo-legal moves that expose the moving side's king."""
         safe_moves = []
         for move in moves:
             self.make_move(move)
@@ -360,6 +423,7 @@ class Board:
         return safe_moves
 
     def in_check(self):
+        """Return whether the current side to move is in check."""
         if self.white_to_move:
             king_r, king_c = self.white_king_loc
             return self._square_attacked(king_r, king_c, False)
@@ -367,7 +431,12 @@ class Board:
         return self._square_attacked(king_r, king_c, True)
 
     def _square_attacked(self, row, col, by_white):
-        """Return True if (row,col) is attacked by pieces of color by_white."""
+        """Return True if ``(row, col)`` is attacked by the chosen color.
+
+        This direct attack test is used after simulated moves, for castling
+        transit squares, and for check detection.  It checks pawn, knight, king,
+        and sliding-piece patterns without changing whose turn it is.
+        """
         direction = -1 if by_white else 1
         for dc in (-1, 1):
             ar, ac = row + direction, col + dc
@@ -446,6 +515,7 @@ class Board:
         return self._square_attacked(row, col, attacker_is_white)
 
     def get_all_possible_moves(self, attack_only=False):
+        """Generate pseudo-legal moves for every piece belonging to the mover."""
         moves = []
         for r in range(8):
             for c in range(8):
@@ -470,6 +540,13 @@ class Board:
         return moves
 
     def check_for_pins_and_checks(self):
+        """Scan outward from the king to classify pins and direct checks.
+
+        Sliding pieces create pins/checks along ranks, files, and diagonals.  A
+        friendly piece between the king and enemy slider is a possible pin; a
+        second blocker means the line is safe.  Knights are checked separately
+        because their attacks do not lie on a ray.
+        """
         pins = []
         checks = []
         in_check = False
@@ -545,12 +622,19 @@ class Board:
         return in_check, pins, checks
 
     def is_pinned(self, row, col):
+        """Return whether a piece is pinned and the direction of that pin."""
         for p in self.pins:
             if p[0] == row and p[1] == col:
                 return True, p
         return False, ()
 
     def get_pawn_moves(self, row, col, moves):
+        """Append legal pawn moves, including promotion and en passant.
+
+        Pawns are the most state-heavy piece: direction depends on color, two
+        square advances create en passant rights, diagonal moves capture, and
+        reaching the back rank expands into four promotion choices.
+        """
         pinned, pin_d = self.is_pinned(row, col)
 
         if self.white_to_move:
@@ -631,6 +715,7 @@ class Board:
                         moves.append(Move((row, col), (row + 1, col + 1), self.board, is_en_passant=True))
 
     def get_piece_moves(self, row, col, moves, directions):
+        """Shared ray-walking logic for rooks, bishops, and queens."""
         pinned, pin_d = self.is_pinned(row, col)
         enemy_color = "b" if self.white_to_move else "w"
         for d in directions:
@@ -650,16 +735,20 @@ class Board:
                         break
 
     def get_rook_moves(self, row, col, moves):
+        """Rooks slide horizontally and vertically until blocked."""
         self.get_piece_moves(row, col, moves, ((-1, 0), (0, -1), (1, 0), (0, 1)))
 
     def get_bishop_moves(self, row, col, moves):
+        """Bishops slide diagonally until blocked."""
         self.get_piece_moves(row, col, moves, ((-1, -1), (-1, 1), (1, -1), (1, 1)))
 
     def get_queen_moves(self, row, col, moves):
+        """A queen combines rook and bishop movement."""
         self.get_rook_moves(row, col, moves)
         self.get_bishop_moves(row, col, moves)
 
     def get_knight_moves(self, row, col, moves):
+        """Knights jump to fixed offsets; a pinned knight cannot legally move."""
         pinned, _ = self.is_pinned(row, col)
         if pinned:
             return
@@ -683,6 +772,11 @@ class Board:
                     moves.append(Move((row, col), (end_r, end_c), self.board))
 
     def get_king_moves(self, row, col, moves, attack_only=False):
+        """Append king moves and, in normal mode, castling moves.
+
+        The final king-safety pass also validates these moves, but this local
+        check keeps obvious illegal king moves out of the candidate list early.
+        """
         ally_color = "w" if self.white_to_move else "b"
         directions = (
             (-1, -1),
@@ -721,6 +815,7 @@ class Board:
             self.get_castle_moves(row, col, moves, ally_color)
 
     def get_castle_moves(self, row, col, moves, ally_color):
+        """Append castling moves when rights, empty squares, and safety permit."""
         if self.in_check_flag:
             return
         if (self.white_to_move and self.current_castling_rights.wks) or (
@@ -733,6 +828,7 @@ class Board:
             self.get_queenside_castle_moves(row, col, moves)
 
     def get_kingside_castle_moves(self, row, col, moves):
+        """Kingside castle: king moves two files toward the h-file rook."""
         if self.board[row][col + 1] is None and self.board[row][col + 2] is None:
             if not self.square_under_attack(row, col) and not self.square_under_attack(
                 row, col + 1
@@ -740,6 +836,7 @@ class Board:
                 moves.append(Move((row, col), (row, col + 2), self.board, is_castle=True))
 
     def get_queenside_castle_moves(self, row, col, moves):
+        """Queenside castle: king moves two files toward the a-file rook."""
         if (
             self.board[row][col - 1] is None
             and self.board[row][col - 2] is None

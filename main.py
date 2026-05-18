@@ -1,3 +1,5 @@
+"""Application entry point and high-level scene loop."""
+
 import multiprocessing
 import sys
 
@@ -12,6 +14,7 @@ from menu import Menu
 
 
 def main():
+    """Initialize Pygame, switch between menu/game scenes, and run frames."""
     pygame.init()
     try:
         pygame.mixer.init()
@@ -29,6 +32,7 @@ def main():
     running = True
 
     def apply_resize(w, h):
+        """Rebuild responsive layout and notify active scenes after resize."""
         nonlocal layout, screen
         layout = AppLayout(max(AppLayout.MIN_WIDTH, w), max(AppLayout.MIN_HEIGHT, h))
         screen = pygame.display.set_mode((layout.width, layout.height), flags)
@@ -38,6 +42,8 @@ def main():
         return layout, screen
 
     while running:
+        # Clamp very large frame deltas after pauses/window drags so animations
+        # and AI polling resume smoothly instead of jumping forward.
         dt = clock.tick(FPS) / 1000.0
         if dt > 0.05:
             dt = 1.0 / FPS
@@ -53,6 +59,8 @@ def main():
                     menu.start_game = False
                 # In-game Esc is handled only in GameScene.handle_events to avoid double-toggle
 
+        # Scene ownership is simple: Menu collects settings, GameScene owns the
+        # live Board once play begins, and returning to menu discards that game.
         if not menu.start_game:
             menu.update(dt)
             menu.handle_events(events)

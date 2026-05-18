@@ -1,3 +1,5 @@
+"""Main in-game scene: input, animation, rendering, and AI coordination."""
+
 import math
 
 import pygame
@@ -23,6 +25,15 @@ from ai import start_ai_search, poll_ai_result, cancel_ai_search
 
 
 class GameScene:
+    """Runtime controller for one chess game.
+
+    Data flow:
+    user input or AI result -> Move selection -> Board.make_move ->
+    Board.get_valid_moves -> cached UI/panel invalidation -> draw next frame.
+    The Board owns chess legality; this scene owns presentation, clicks,
+    animation timing, sounds, and background AI polling.
+    """
+
     def __init__(self, settings, layout):
         self.settings = settings
         self.layout = layout
@@ -36,13 +47,20 @@ class GameScene:
         self.request_main_menu = False
         self._pause_alpha = 0.0
 
+        # Animation state is deliberately separate from board state.  The board
+        # is updated immediately, while anim_queue draws the moving piece between
+        # its old and new squares for visual continuity.
         self.animating = False
         self.anim_queue = []
+        # AI state: a worker thread searches a copied Board, then posts one move
+        # through a Queue.  The main thread polls without blocking the frame loop.
         self.ai_thinking = False
         self.ai_thread = None
         self.ai_queue = None
         self._ai_move_pending = None
 
+        # Promotion pauses normal board input until the user chooses which piece
+        # the pawn should become.
         self.promotion_move = None
         self.promotion_choices = []
         self._promo_hover = -1
@@ -74,6 +92,7 @@ class GameScene:
         self._rebuild_ui()
 
     def on_resize(self, layout):
+        """Recompute responsive geometry and clear size-dependent caches."""
         self.layout = layout
         clear_font_cache()
         self._rebuild_ui()
@@ -81,6 +100,7 @@ class GameScene:
         self._invalidate_panel_cache()
 
     def _rebuild_ui(self):
+        """Create fonts and place buttons from the current AppLayout metrics."""
         L = self.layout
         self.font_sm = get_font(L.font_sm)
         self.font = get_font(L.font_md)
@@ -113,11 +133,13 @@ class GameScene:
         self.btn_main_menu.rect = pygame.Rect(cx - bw // 2, cy + bh + gap, bw, bh)
 
     def toggle_pause(self):
+        """Toggle pause unless a promotion choice is currently required."""
         if self.promotion_move:
             return
         self.paused = not self.paused
 
     def _theme(self):
+        """Resolve the currently selected board theme dictionary."""
         name = self.settings.get("board_theme", "classic")
         return BOARD_THEMES.get(name, BOARD_THEMES["classic"])
 
@@ -140,6 +162,7 @@ class GameScene:
         return self.layout.board_inner_rect()
 
     def _build_board_background(self):
+        """Build and cache the static board squares and coordinate labels."""
         L = self.layout
         theme = self._theme()
         size = (L.board_size, L.board_size)
@@ -181,6 +204,7 @@ class GameScene:
         return surf
 
     def reset(self):
+        """Start a fresh game and cancel any pending AI search."""
         cancel_ai_search()
         self.board = Board()
         self.valid_moves = self.board.get_valid_moves()
@@ -202,9 +226,11 @@ class GameScene:
         self._invalidate_panel_cache()
 
     def _human_plays_white(self):
+        """Return True when the human controls White in player-vs-AI mode."""
         return self.settings.get("human_color", "w") == "w"
 
     def _is_human_turn(self):
+        """Return whether click input should be accepted this turn."""
         if self.settings["pvp"]:
             return True
         if self._human_plays_white():
@@ -212,6 +238,13 @@ class GameScene:
         return not self.board.white_to_move
 
     def update(self, dt=None):
+        """Advance one frame of non-rendering game logic.
+
+        This is the central update flow:
+        buttons and overlay animations update every frame, piece animations run,
+        pending AI moves are applied after animations finish, and new AI searches
+        are started only when it is the computer's turn.
+        """
         if dt is None:
             dt = self._last_dt
         self._last_dt = dt
@@ -245,6 +278,8 @@ class GameScene:
             return
 
         if self._ai_move_pending is not None:
+            # Apply the AI move on the main thread so Board mutation, sounds, and
+            # animation all happen in the same place as human moves.
             self.execute_move(self._ai_move_pending)
             self._ai_move_pending = None
             self.ai_thinking = False
@@ -257,6 +292,8 @@ class GameScene:
             and self._is_human_turn() is False
             and not self.ai_thinking
         ):
+            # Start exactly one background search for the current AI turn.  The
+            # worker receives the current legal moves and a copied board.
             self.ai_thinking = True
             self.ai_thread, self.ai_queue = start_ai_search(
                 self.board, self.valid_moves, self.settings["ai_depth"]
@@ -265,6 +302,8 @@ class GameScene:
         if self.ai_thinking and self.ai_queue is not None:
             result = poll_ai_result(self.ai_queue)
             if result is not None:
+                # Search results are validated against the live legal-move list
+                # before use.  This guards against stale results after undo/reset.
                 move, _nodes = result
                 cancel_ai_search()
                 self.ai_thread = None
@@ -275,12 +314,14 @@ class GameScene:
                 self._invalidate_panel_cache()
 
     def _move_in_valid(self, move):
+        """Check a worker-produced Move against the live legal move list."""
         for vm in self.valid_moves:
             if vm.move_id == move.move_id and vm.promotion == move.promotion:
                 return True
         return False
 
     def handle_events(self, events):
+        """Convert Pygame events into UI commands or chess move attempts."""
         if self.paused:
             for e in events:
                 if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE and not getattr(e, "repeat", False):
@@ -295,6 +336,7 @@ class GameScene:
             return
 
         if self.promotion_move is not None:
+            # Promotion owns mouse input until a piece is chosen.
             self.handle_promotion_events(events)
             return
 
@@ -340,6 +382,9 @@ class GameScene:
                     self.player_clicks.append(self.sq_selected)
 
                 if len(self.player_clicks) == 2:
+                    # The UI never validates chess rules itself.  It builds a
+                    # start/end square pair and looks for an equivalent Move in
+                    # Board.get_valid_moves().
                     move_start = self.player_clicks[0]
                     move_end = self.player_clicks[1]
                     matched = False
@@ -361,6 +406,7 @@ class GameScene:
                         self.player_clicks = [self.sq_selected] if self.sq_selected else []
 
     def _start_promotion(self, base_move):
+        """Build the selectable promotion moves for the overlay."""
         color = "w" if self.board.white_to_move else "b"
         self.promotion_move = base_move
         self.promotion_choices = []
@@ -378,6 +424,7 @@ class GameScene:
                 self.promotion_choices.append(promo_move)
 
     def handle_promotion_events(self, events):
+        """Handle hover, mouse-down arming, and click release for promotion."""
         if self.promotion_move is None:
             return
         self._promo_hover = -1
@@ -406,6 +453,7 @@ class GameScene:
                         return
 
     def _promotion_rect(self, index):
+        """Return the screen rectangle for one promotion choice."""
         inner = self._board_inner_rect()
         sq = inner.w // 8
         total_w = sq * 4
@@ -414,6 +462,7 @@ class GameScene:
         return pygame.Rect(x0 + index * sq, y, sq, sq)
 
     def _undo(self):
+        """Undo one move in PvP or a full human/AI pair in player-vs-AI."""
         cancel_ai_search()
         self.ai_thinking = False
         self.board.undo_move()
@@ -429,6 +478,7 @@ class GameScene:
         self._invalidate_panel_cache()
 
     def execute_move(self, move):
+        """Apply a move to the model and start its visual/audio feedback."""
         start_rect = self._sq_rect(move.start_row, move.start_col)
         end_rect = self._sq_rect(move.end_row, move.end_col)
 
@@ -453,6 +503,8 @@ class GameScene:
 
         self.board.make_move(move)
 
+        # Legal moves must be regenerated immediately because they drive input
+        # validation, check/checkmate state, highlights, and the next AI turn.
         if self.board.in_check():
             self.snd_check.play()
 
@@ -463,6 +515,7 @@ class GameScene:
         self._invalidate_panel_cache()
 
     def process_animations(self, dt):
+        """Advance the current piece animation without touching chess state."""
         if not self.anim_queue:
             self.animating = False
             return
@@ -474,6 +527,7 @@ class GameScene:
             self.animating = False
 
     def _panel_signature_key(self):
+        """Return values that determine whether the side panel must be rebuilt."""
         log_len = len(self.board.move_log)
         caps = tuple(m.piece_captured for m in self.board.move_log if m.piece_captured)
         return (
@@ -488,6 +542,7 @@ class GameScene:
         )
 
     def _build_panel_content(self):
+        """Render move history and captured pieces into a cached surface."""
         L = self.layout
         surf = pygame.Surface((L.panel_w, L.height), pygame.SRCALPHA)
         x = L.pad
@@ -576,6 +631,7 @@ class GameScene:
         return surf
 
     def _get_panel_content(self):
+        """Reuse the side panel surface until game state or layout changes."""
         sig = self._panel_signature_key()
         if self._panel_content is None or self._panel_signature != sig:
             self._panel_content = self._build_panel_content()
@@ -583,6 +639,7 @@ class GameScene:
         return self._panel_content
 
     def _draw_board_layer(self, surface):
+        """Draw board, highlights, pieces, and the active move animation."""
         L = self.layout
         self._build_board_background()
         surface.blit(self._board_bg, (L.board_x, L.board_y))
@@ -590,6 +647,8 @@ class GameScene:
         sq_size = self._sq_rect(0, 0).w
 
         if self.board.move_log:
+            # Highlight the previous move to make the board state easier to
+            # follow during play and presentations.
             last_move = self.board.move_log[-1]
             for r, c in (
                 (last_move.start_row, last_move.start_col),
@@ -598,6 +657,8 @@ class GameScene:
                 surface.blit(get_square_overlay(sq_size, LAST_MOVE_COLOR), self._sq_rect(r, c).topleft)
 
         if self.board.in_check():
+            # Check visualization is derived from the rules engine, not from the
+            # last move, so discovered checks and AI moves are handled uniformly.
             if self.board.white_to_move:
                 kr, kc = self.board.white_king_loc
             else:
@@ -618,6 +679,8 @@ class GameScene:
             surface.blit(get_square_overlay(sq_size, sel_c), self._sq_rect(r, c).topleft)
 
             for move in self.valid_moves:
+                # Destination markers come from legal moves only, so pinned
+                # pieces and king-safety restrictions are already filtered out.
                 if move.start_row == r and move.start_col == c:
                     cx, cy = self._sq_center(move.end_row, move.end_col)
                     radius = max(5, sq_size // 7)
@@ -664,6 +727,7 @@ class GameScene:
             surface.blit(img, (curr_x, curr_y))
 
     def _draw_promotion_ui(self, surface):
+        """Draw the modal promotion selector over the board."""
         if not self.promotion_move:
             return
         L = self.layout
@@ -696,6 +760,7 @@ class GameScene:
             surface.blit(img, rect.move(4, 4))
 
     def _draw_game_over(self, surface):
+        """Draw the animated checkmate/stalemate/draw overlay."""
         if self._game_over_alpha <= 0.01:
             return
         L = self.layout
@@ -740,6 +805,7 @@ class GameScene:
         surface.blit(hint_surf, hint_rect)
 
     def _draw_pause_overlay(self, surface):
+        """Draw pause menu overlay and its action buttons."""
         if self._pause_alpha <= 0.01:
             return
         L = self.layout
@@ -768,6 +834,7 @@ class GameScene:
             btn.draw(surface)
 
     def draw(self, surface):
+        """Render the complete scene for the current frame."""
         L = self.layout
         surface.fill(BG_COLOR)
 

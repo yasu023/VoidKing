@@ -1,3 +1,11 @@
+"""Shared configuration for rendering and chess evaluation.
+
+The UI constants control the Pygame presentation.  The evaluation constants are
+used only by ai.py: material values give the baseline score, and piece-square
+tables add positional preferences such as central knights, active bishops, and a
+safer king in the middlegame.
+"""
+
 import pygame
 
 WIDTH, HEIGHT = 1000, 720
@@ -63,6 +71,9 @@ BOARD_THEMES = {
 
 BOARD_THEME_ORDER = ("classic", "dark")
 
+# Material values are measured in centipawns.  A pawn is 100, so a rook at 500
+# is roughly worth five pawns.  The king's value is intentionally huge because a
+# captured king is not a normal evaluation goal; checkmate is handled separately.
 PIECE_VALUES = {
     'p': 100,
     'n': 320,
@@ -72,6 +83,9 @@ PIECE_VALUES = {
     'k': 20000
 }
 
+# Piece-square tables (PSTs) are indexed from White's perspective.  ai.py mirrors
+# row numbers for White pieces so both colors receive equivalent positional
+# bonuses as they advance toward the opponent.
 PAWN_PST = [
     [0,  0,  0,  0,  0,  0,  0,  0],
     [50, 50, 50, 50, 50, 50, 50, 50],

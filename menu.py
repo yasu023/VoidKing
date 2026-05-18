@@ -1,3 +1,5 @@
+"""Start menu scene for choosing mode, difficulty, color, and theme."""
+
 import math
 
 import pygame
@@ -9,6 +11,8 @@ from utils import clear_font_cache, draw_text, draw_text_shadow, get_font
 
 
 class Menu:
+    """Collects game settings before GameScene is created."""
+
     def __init__(self, layout):
         self.layout = layout
         self.mode_pvp = True
@@ -29,6 +33,7 @@ class Menu:
         self._rebuild_fonts_and_layout()
 
     def on_resize(self, layout):
+        """Recalculate fonts/layout and drop cached background after resize."""
         self.layout = layout
         self._bg_cache = None
         self._bg_size = None
@@ -36,6 +41,7 @@ class Menu:
         self._rebuild_fonts_and_layout()
 
     def _rebuild_fonts_and_layout(self):
+        """Refresh button labels and rectangles from current settings."""
         L = self.layout
         self.font_title = get_font(L.font_title, bold=True)
         self.font_sub = get_font(L.font_sub)
@@ -58,6 +64,7 @@ class Menu:
         self._layout_buttons()
 
     def get_settings(self):
+        """Return the settings dictionary consumed by GameScene."""
         return {
             "pvp": self.mode_pvp,
             "ai_depth": self.diffs[self.diff_idx][0],
@@ -66,6 +73,7 @@ class Menu:
         }
 
     def _button_list(self):
+        """Return visible buttons; AI-only choices are hidden in PvP mode."""
         buttons = [self.btn_start, self.btn_mode]
         if not self.mode_pvp:
             buttons.extend([self.btn_color, self.btn_diff])
@@ -73,6 +81,7 @@ class Menu:
         return buttons
 
     def _layout_buttons(self):
+        """Stack visible buttons in the available menu area."""
         L = self.layout
         bw = L.menu_button_width()
         num = len(self._button_list())
@@ -90,11 +99,13 @@ class Menu:
             y += bh + gap
 
     def update(self, dt):
+        """Advance menu animation time and button hover/press states."""
         self._time += dt
         for btn in self._button_list():
             btn.update(dt)
 
     def handle_events(self, events):
+        """Translate keyboard/mouse events into setting changes or start_game."""
         for e in events:
             if e.type == pygame.KEYDOWN and e.key in (pygame.K_RETURN, pygame.K_SPACE):
                 self.start_game = True
@@ -122,6 +133,7 @@ class Menu:
                     self._layout_buttons()
 
     def _draw_background(self, surface):
+        """Render a cached subtle background sized to the current window."""
         size = (self.layout.width, self.layout.height)
         if self._bg_cache is None or self._bg_size != size:
             self._bg_cache = pygame.Surface(size)
@@ -142,6 +154,7 @@ class Menu:
         surface.blit(self._bg_cache, (0, 0))
 
     def draw(self, surface):
+        """Draw menu title, instructions, and current setting buttons."""
         L = self.layout
         self._draw_background(surface)
 

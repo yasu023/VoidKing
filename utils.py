@@ -1,3 +1,5 @@
+"""Rendering, asset, font, and animation helpers shared by scenes."""
+
 import math
 import os
 
@@ -28,10 +30,12 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _asset_path(relative):
+    """Resolve an asset path relative to the project directory."""
     return os.path.join(_BASE_DIR, relative)
 
 
 def clear_font_cache():
+    """Clear cached fonts and square overlays after display/layout changes."""
     _font_cache.clear()
     global _overlay_cache
     _overlay_cache = {}
@@ -55,6 +59,7 @@ def fit_text(font, text, max_width):
 
 
 def get_font(size, bold=False):
+    """Return a cached UI font, falling back to Pygame's default font."""
     key = (size, bold)
     if key in _font_cache:
         return _font_cache[key]
@@ -72,11 +77,13 @@ def get_font(size, bold=False):
 
 
 def ease_out_cubic(t):
+    """Easing curve used for overlays that slow as they finish."""
     t = max(0.0, min(1.0, t))
     return 1.0 - pow(1.0 - t, 3)
 
 
 def ease_in_out_quad(t):
+    """Easing curve used for piece movement with gentle start and stop."""
     t = max(0.0, min(1.0, t))
     if t < 0.5:
         return 2 * t * t
@@ -84,10 +91,12 @@ def ease_in_out_quad(t):
 
 
 def lerp(a, b, t):
+    """Linear interpolation between two scalar values."""
     return a + (b - a) * t
 
 
 def lerp_color(c1, c2, t):
+    """Interpolate RGB or RGBA color tuples component by component."""
     t = max(0.0, min(1.0, t))
     if len(c1) == 4 or len(c2) == 4:
         return tuple(int(lerp(c1[i], c2[i], t)) for i in range(min(len(c1), len(c2))))
@@ -95,6 +104,7 @@ def lerp_color(c1, c2, t):
 
 
 def _ensure_mixer():
+    """Try to initialize audio once; failures leave sound playback disabled."""
     global _mixer_ready
     if not _mixer_ready:
         try:
@@ -106,6 +116,7 @@ def _ensure_mixer():
 
 
 def generate_procedural_piece(piece_name, size):
+    """Create a Unicode chess-piece fallback when image assets are missing."""
     surface = pygame.Surface((size, size), pygame.SRCALPHA)
     font = None
     for family in ("segoeuisymbol", "dejavusans", "arial"):
@@ -131,6 +142,7 @@ def generate_procedural_piece(piece_name, size):
 
 
 def load_image(path, size=None, fallback_name=None):
+    """Load and cache an image, with procedural piece fallback support."""
     full_path = _asset_path(path) if not os.path.isabs(path) else path
     cache_key = (full_path, size)
     if cache_key in _assets:
@@ -155,11 +167,14 @@ def load_image(path, size=None, fallback_name=None):
 
 
 class _DummySound:
+    """No-op sound object used when audio is unavailable."""
+
     def play(self):
         pass
 
 
 def load_sound(path):
+    """Load and cache a sound, returning a no-op object if loading fails."""
     full_path = _asset_path(path) if not os.path.isabs(path) else path
     if full_path in _assets:
         return _assets[full_path]
@@ -179,6 +194,7 @@ def load_sound(path):
 
 
 def draw_text(surface, text, font, color, x, y, center=False):
+    """Render text at a position and return its rectangle."""
     text_surface = font.render(str(text), True, color)
     text_rect = text_surface.get_rect()
     if center:
@@ -200,6 +216,7 @@ def draw_text_shadow(
     offset=(0, 2),
     shadow_alpha=90,
 ):
+    """Render text with a soft shadow for contrast over dark backgrounds."""
     text_surface = font.render(str(text), True, color)
     shadow_surface = font.render(str(text), True, (12, 14, 20))
     shadow_surface.set_alpha(shadow_alpha)
@@ -217,6 +234,7 @@ def draw_text_shadow(
 
 
 def draw_rounded_panel(surface, rect, color, border_color=None, radius=12, border=2, alpha=255):
+    """Draw a rounded translucent panel with an optional border."""
     panel = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
     fill = color if len(color) == 4 else (*color, alpha)
     pygame.draw.rect(panel, fill, panel.get_rect(), border_radius=radius)
@@ -239,6 +257,7 @@ _overlay_cache = {}
 
 
 def get_square_overlay(size, color):
+    """Return a cached solid overlay surface for board highlights."""
     key = (size, color)
     if key not in _overlay_cache:
         s = pygame.Surface((size, size), pygame.SRCALPHA)

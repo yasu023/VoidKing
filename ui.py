@@ -1,3 +1,5 @@
+"""Reusable lightweight UI widgets for the Pygame scenes."""
+
 import pygame
 
 from constants import (
@@ -15,6 +17,8 @@ from utils import draw_text, draw_text_shadow, fit_text, lerp_color
 
 
 class Button:
+    """Animated click button with hover/press state and safe text fitting."""
+
     def __init__(
         self,
         x,
@@ -42,6 +46,7 @@ class Button:
         self._press_t = 0.0
 
     def update(self, dt):
+        """Smooth hover/press animation values toward current input state."""
         try:
             self.is_hovered = self.rect.collidepoint(pygame.mouse.get_pos())
         except pygame.error:
@@ -53,6 +58,7 @@ class Button:
         self._press_t += (target_press - self._press_t) * speed
 
     def draw(self, surface):
+        """Draw the button background, border, shadow, and fitted label."""
         hover = self._hover_t
         press = self._press_t
         base = lerp_color(self.bg_color, self.hover_color, hover)
@@ -105,20 +111,25 @@ class Button:
 
 
 class Panel:
+    """Cached side-panel background used by the game HUD."""
+
     def __init__(self, x, y, width, height):
         self.rect = pygame.Rect(x, y, width, height)
         self._cache = None
 
     def set_geometry(self, x, y, width, height):
+        """Move/resize the panel and invalidate its cached surface if needed."""
         new_rect = pygame.Rect(x, y, width, height)
         if new_rect != self.rect:
             self.rect = new_rect
             self.invalidate()
 
     def invalidate(self):
+        """Force the next draw to rebuild the panel surface."""
         self._cache = None
 
     def draw(self, surface):
+        """Draw cached gradient panel background."""
         if self._cache is None:
             self._cache = pygame.Surface((self.rect.w, self.rect.h))
             self._cache.fill(PANEL_COLOR)
