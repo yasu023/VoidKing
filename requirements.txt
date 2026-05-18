@@ -1,0 +1,2 @@
+# pygame-ce installs as `import pygame` and ships reliable Windows wheels.
+pygame-ce>=2.4.1
