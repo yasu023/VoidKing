@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/screenshots/banner.png" alt="VoidKing Chess AI Banner" width="100%">
+  <img src="assets/screenshots/ChatGPT Image May 25, 2026, 09_29_46 PM.png" alt="VoidKing Chess AI Banner" width="100%">
 </p>
 
 <br>
