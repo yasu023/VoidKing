@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="assets/screenshots/banner.png" alt="VoidKing Chess AI Banner" width="100%">
+</p>
+
+<br>
+
 # PyChess Professional
 
 A production-ready chess game built with Python and Pygame CE. Full rule enforcement, responsive UI, minimax AI, and polished menus.
@@ -34,14 +40,14 @@ python main.py
 
 ### Controls
 
-| Key / action | Effect |
-|--------------|--------|
-| **Esc** (in game) | Pause menu |
-| **Resume** | Continue game |
-| **Restart** | New game |
-| **Main Menu** | Return to menu |
-| **Enter / Space** (menu) | Start game |
-| Drag window edge | Resize (min 880×600) |
+| Key / action             | Effect               |
+| ------------------------ | -------------------- |
+| **Esc** (in game)        | Pause menu           |
+| **Resume**               | Continue game        |
+| **Restart**              | New game             |
+| **Main Menu**            | Return to menu       |
+| **Enter / Space** (menu) | Start game           |
+| Drag window edge         | Resize (min 880×600) |
 
 ### Menu options
 
@@ -65,15 +71,15 @@ python tests/test_chess.py
 
 ## Project layout
 
-| File | Role |
-|------|------|
-| `main.py` | Main loop, resize, scene routing |
-| `layout.py` | Responsive layout metrics |
-| `menu.py` | Main menu |
-| `game.py` | Gameplay, pause, panels |
-| `board.py` | Rules and move generation |
-| `ai.py` | Minimax engine |
-| `pygame_bootstrap.py` | Safe pygame import |
-| `constants.py` | Colors, themes, AI tables |
+| File                  | Role                             |
+| --------------------- | -------------------------------- |
+| `main.py`             | Main loop, resize, scene routing |
+| `layout.py`           | Responsive layout metrics        |
+| `menu.py`             | Main menu                        |
+| `game.py`             | Gameplay, pause, panels          |
+| `board.py`            | Rules and move generation        |
+| `ai.py`               | Minimax engine                   |
+| `pygame_bootstrap.py` | Safe pygame import               |
+| `constants.py`        | Colors, themes, AI tables        |
 
 Optional: `assets/pieces/*.png`, `assets/sounds/*.wav`
