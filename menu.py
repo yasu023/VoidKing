@@ -4,7 +4,16 @@ import math
 
 import pygame
 
-from constants import ACCENT, BG_COLOR, BOARD_THEME_ORDER, BOARD_THEMES, PANEL_BORDER, TEXT_COLOR, TEXT_MUTED
+from constants import (
+    ACCENT,
+    BG_COLOR,
+    BOARD_THEME_ORDER,
+    BOARD_THEMES,
+    PANEL_BORDER,
+    TEXT_COLOR,
+    TEXT_DIM,
+    TEXT_MUTED,
+)
 from layout import AppLayout
 from ui import Button
 from utils import clear_font_cache, draw_text, draw_text_shadow, get_font
@@ -46,6 +55,8 @@ class Menu:
         self.font_title = get_font(L.font_title, bold=True)
         self.font_sub = get_font(L.font_sub)
         self.font_btn = get_font(L.font_btn)
+        self.font_credit_label = get_font(max(11, int(12 * L.scale)))
+        self.font_credit_name = get_font(max(13, int(14 * L.scale)), bold=True)
 
         for btn in (
             self.btn_start,
@@ -97,6 +108,33 @@ class Menu:
         for btn in self._button_list():
             btn.rect = pygame.Rect(cx - bw // 2, y, bw, bh)
             y += bh + gap
+
+    def _draw_developer_credit(self, surface):
+        """Draw a subtle footer credit that stays clear of menu controls."""
+        L = self.layout
+        label = "Developed By"
+        name = "Yassin Khaled"
+        label_surf = self.font_credit_label.render(label, True, TEXT_DIM)
+        name_surf = self.font_credit_name.render(name, True, TEXT_MUTED)
+
+        gap = max(3, int(4 * L.scale))
+        credit_h = label_surf.get_height() + gap + name_surf.get_height()
+        buttons = self._button_list()
+        buttons_bottom = max((btn.rect.bottom for btn in buttons), default=0)
+        bottom_pad = max(L.pad, int(24 * L.scale))
+        min_top = buttons_bottom + max(22, int(28 * L.scale))
+        y = max(min_top, L.height - bottom_pad - credit_h)
+        y = min(y, L.height - L.pad - credit_h)
+
+        credit = pygame.Surface((L.width, credit_h), pygame.SRCALPHA)
+        label_rect = label_surf.get_rect(center=(L.width // 2, label_surf.get_height() // 2))
+        name_rect = name_surf.get_rect(
+            center=(L.width // 2, label_surf.get_height() + gap + name_surf.get_height() // 2)
+        )
+        credit.blit(label_surf, label_rect)
+        credit.blit(name_surf, name_rect)
+        credit.set_alpha(int(170 * min(1.0, self._time / 1.4)))
+        surface.blit(credit, (0, y))
 
     def update(self, dt):
         """Advance menu animation time and button hover/press states."""
@@ -178,3 +216,5 @@ class Menu:
 
         for btn in self._button_list():
             btn.draw(surface)
+
+        self._draw_developer_credit(surface)
