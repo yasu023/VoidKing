@@ -377,7 +377,7 @@ class Board:
                 # A single sliding check can be answered by capturing the
                 # checker or blocking the line.  A knight check can only be
                 # captured or escaped by the king.
-                moves = self.get_all_possible_moves(attack_only=True)
+                moves = self.get_all_possible_moves()
                 check = self.checks[0]
                 check_r, check_c = check[0], check[1]
                 piece_checking = self.board[check_r][check_c]
@@ -399,7 +399,7 @@ class Board:
                 # can make both attacks disappear.
                 self.get_king_moves(king_r, king_c, moves, attack_only=True)
         else:
-            moves = self.get_all_possible_moves(attack_only=True)
+            moves = self.get_all_possible_moves()
 
         moves = self.filter_king_safe_moves(moves)
 
@@ -437,7 +437,7 @@ class Board:
         transit squares, and for check detection.  It checks pawn, knight, king,
         and sliding-piece patterns without changing whose turn it is.
         """
-        direction = -1 if by_white else 1
+        direction = 1 if by_white else -1
         for dc in (-1, 1):
             ar, ac = row + direction, col + dc
             if 0 <= ar < 8 and 0 <= ac < 8:
@@ -816,27 +816,34 @@ class Board:
 
     def get_castle_moves(self, row, col, moves, ally_color):
         """Append castling moves when rights, empty squares, and safety permit."""
-        if self.in_check_flag:
+        home_row = 7 if ally_color == "w" else 0
+        if self.in_check_flag or row != home_row or col != 4:
+            return
+        if self.board[row][col] != ally_color + "k":
             return
         if (self.white_to_move and self.current_castling_rights.wks) or (
             not self.white_to_move and self.current_castling_rights.bks
         ):
-            self.get_kingside_castle_moves(row, col, moves)
+            self.get_kingside_castle_moves(row, col, moves, ally_color)
         if (self.white_to_move and self.current_castling_rights.wqs) or (
             not self.white_to_move and self.current_castling_rights.bqs
         ):
-            self.get_queenside_castle_moves(row, col, moves)
+            self.get_queenside_castle_moves(row, col, moves, ally_color)
 
-    def get_kingside_castle_moves(self, row, col, moves):
+    def get_kingside_castle_moves(self, row, col, moves, ally_color):
         """Kingside castle: king moves two files toward the h-file rook."""
+        if self.board[row][7] != ally_color + "r":
+            return
         if self.board[row][col + 1] is None and self.board[row][col + 2] is None:
             if not self.square_under_attack(row, col) and not self.square_under_attack(
                 row, col + 1
             ) and not self.square_under_attack(row, col + 2):
                 moves.append(Move((row, col), (row, col + 2), self.board, is_castle=True))
 
-    def get_queenside_castle_moves(self, row, col, moves):
+    def get_queenside_castle_moves(self, row, col, moves, ally_color):
         """Queenside castle: king moves two files toward the a-file rook."""
+        if self.board[row][0] != ally_color + "r":
+            return
         if (
             self.board[row][col - 1] is None
             and self.board[row][col - 2] is None
